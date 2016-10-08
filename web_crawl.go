@@ -1,15 +1,21 @@
 package main
 
 import (
+    "container/list"
 	"fmt"
 	"time"
 )
 
-const crawl_num = 4
+const crawl_num = 5
 
-type State struct{
-	url string
-	done bool
+//type State struct{
+//	url string
+//	done bool
+//}
+
+type SignalUrlChan struct{
+    url chan string
+    signal chan int
 }
 
 type SafeTaskMap struct {
@@ -24,48 +30,46 @@ type Fetcher interface {
 }
 
 // Crawl 使用 fetcher 从某个 URL 开始递归的爬取页面，直到达到最大深度。
-func Crawl(urlmap *SafeTaskMap, fetcher Fetcher, idle chan<- int, qstate chan<- *State, q_state_signal <-chan int, quit <-chan int) {
+func Crawl(urlmap *SafeTaskMap, fetcher Fetcher, idle chan<- int, complete *SignalUrlChan, todo *SignalUrlChan) {
 	// TODO: 并行的抓取 URL。
 	// TODO: 不重复抓取页面。
     // 下面并没有实现上面两种情况：
-	state_queue := make([]*State, 0, 10)
+	complete_list := list.New()
+    todo_list := list.New()
 	idle_flag := false
 	
 	for {
+        if complete_list.Len() > 0{
+            <-complete.signal
+            e := complete_list.Front()
+            complete.url <- e.Value.(string)
+            complete_list.Remove(e)
+            continue
+        }else if todo_list.Len() > 0{
+            <- todo.signal
+            e := todo_list.Front()
+            todo.url <- e.Value.(string)
+            todo_list.Remove(e)
+        }
+ 
 		select {
-		case <-quit:
-			fmt.Println("goroutine exited!")
-			return 
 		case url := <-urlmap.q:
 			if idle_flag{
 				idle_flag = false
 				idle <- -1
 			}
-			time.Sleep(2*time.Second)
 			body, urls, err := fetcher.Fetch(url)
-			state_queue = append(state_queue, &State{url, true})
+            complete_list.PushBack(url)
 			if err != nil {
 				fmt.Println(err)
 				continue
 			}
 			fmt.Printf("found: %s %q\n", url, body)
 			for _, u := range urls{
-				state_queue = append(state_queue, &State{u, false})
+                todo_list.PushBack(u)
 			}
-		case <-q_state_signal:
-			if idle_flag{
-				idle_flag = false
-				idle <- -1
-			}
-			qstate <- state_queue[len(state_queue)]
-			state_queue = state_queue[:len(state_queue) - 1]
 		default:
-			if len(state_queue) > 0{
-				if idle_flag{
-					idle_flag = false
-					idle <- -1
-				}
-			}else if !idle_flag{
+			if !idle_flag{
 				idle_flag = true
 				idle <- 1
 			}
@@ -84,11 +88,11 @@ func IdleMonitor(interval time.Duration, quit chan<- int) chan<- int{
 			select{
 				case <-ticker.C:
 					fmt.Printf("[IDLE]->%v\n", idle_sum)
-					//if idle_sum == crawl_num{
-					//	fmt.Println("all crawl idle. --> quit")
-					//	quit <- 0
-					//	break
-					//}
+					if idle_sum == crawl_num{
+						fmt.Println("all crawl idle. --> quit")
+						quit <- 0
+						break
+					}
 				case i := <-idle:
 					idle_sum += i
 			}
@@ -98,26 +102,27 @@ func IdleMonitor(interval time.Duration, quit chan<- int) chan<- int{
 	return idle
 }
 
-func StateProcessor(urlmap *SafeTaskMap) (chan <- *State, chan <- ){
-	qstate := make(chan *State)
-	go func(){
+func StateProcessor(urlmap *SafeTaskMap) (*SignalUrlChan, *SignalUrlChan){
+	complete := &SignalUrlChan{url:make(chan string), signal:make(chan int)}
+    todo := &SignalUrlChan{url:make(chan string), signal:make(chan int)}
+    go func(){
 		for {
-			
-		}
-		for state := range qstate{
-			if state.done{
-				urlmap.m[state.url] = true
-			}else {
-				done, ok := urlmap.m[state.url]
-				if !ok || !done{
-					urlmap.q <- state.url
-				}
-			}
-			
+            select{
+                case url := <-complete.url:
+                    urlmap.m[url] = true
+                case url := <-todo.url:
+                    _, ok := urlmap.m[url]
+                    if !ok {
+                        //fmt.Println("[PUSH]", url, ok)
+                        urlmap.q <- url
+                    }
+                case complete.signal <- 0:
+                case todo.signal <- 0:
+            }
 		}
 	}()
 	
-	return qstate
+	return complete, todo
 }
 
 func main() {
@@ -126,11 +131,14 @@ func main() {
 	quit := make(chan int)
 	idle := IdleMonitor(time.Second, quit)
 	urlmap.q <- "http://golang.org/"
-	qstate := StateProcessor(urlmap)
+	complete, todo := StateProcessor(urlmap)
 	for i:=0; i < crawl_num; i++{
-		go Crawl(urlmap, fetcher, idle, qstate, quit)
+		go Crawl(urlmap, fetcher, idle, complete, todo)
 	}
 	<-quit
+    for k, _ := range urlmap.m{
+        fmt.Println(k)
+    }
 }
 
 // fakeFetcher 是返回若干结果的 Fetcher。
@@ -142,6 +150,7 @@ type fakeResult struct {
 }
 
 func (f fakeFetcher) Fetch(url string) (string, []string, error) {
+    time.Sleep(time.Second)
 	if res, ok := f[url]; ok {
 		return res.body, res.urls, nil
 	}
@@ -157,6 +166,10 @@ var fetcher = fakeFetcher{
 			"http://golang.org/cmd/",
 			"http://golang.org/doc/",
 			"http://golang.org/about/",
+            "http://golang.org/abc/",
+            "http://golang.org/hello/",
+            "http://golang.org/test/",
+            "http://golang.org/proxy/",
 		},
 	},
 	"http://golang.org/pkg/": &fakeResult{
