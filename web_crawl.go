@@ -68,8 +68,8 @@ func Crawl(urlmap *TaskMap, fetcher Fetcher, idle chan<- int, complete *SignalUr
 }
 
 func IdleMonitor(interval time.Duration, quit chan<- int) chan<- int{
-	idle := make(chan int)
-	//idle := make(chan int, crawl_num)
+	//idle := make(chan int)
+	idle := make(chan int, crawl_num)
 	idle_sum := 0
 	ticker := time.NewTicker(interval)
 	
@@ -93,8 +93,8 @@ func IdleMonitor(interval time.Duration, quit chan<- int) chan<- int{
 }
 
 func StateProcessor(urlmap *TaskMap) (*SignalUrlChan, *SignalUrlChan){
-	complete := &SignalUrlChan{url:make(chan string), signal:make(chan int)}
-    todo := &SignalUrlChan{url:make(chan string), signal:make(chan int)}
+	complete := &SignalUrlChan{url:make(chan string, crawl_num), signal:make(chan int, crawl_num)}
+    todo := &SignalUrlChan{url:make(chan string, crawl_num), signal:make(chan int, crawl_num)}
     go func(){
 		for {
             select{
@@ -116,8 +116,8 @@ func StateProcessor(urlmap *TaskMap) (*SignalUrlChan, *SignalUrlChan){
 }
 
 func main() {
-	urlmap := &TaskMap{m:make(map[string]bool), q:make(chan string, 1)}
-	//urlmap := &TaskMap{m:make(map[string]bool), q:make(chan string, crawl_num + 1)}
+	//urlmap := &TaskMap{m:make(map[string]bool), q:make(chan string, 1)}
+	urlmap := &TaskMap{m:make(map[string]bool), q:make(chan string, crawl_num + 1)}
 	quit := make(chan int)
 	idle := IdleMonitor(time.Second, quit)
 	urlmap.q <- "http://golang.org/"
