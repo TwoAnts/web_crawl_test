@@ -8,32 +8,22 @@ import (
 
 const crawl_num = 5
 
-//type State struct{
-//	url string
-//	done bool
-//}
-
 type SignalUrlChan struct{
     url chan string
     signal chan int
 }
 
-type SafeTaskMap struct {
+type TaskMap struct {
 	m map[string]bool
 	q chan string
 }
 
 
 type Fetcher interface {
-	// Fetch 返回 URL 的 body 内容，并且将在这个页面上找到的 URL 放到一个 slice 中。
 	Fetch(url string) (body string, urls []string, err error)
 }
 
-// Crawl 使用 fetcher 从某个 URL 开始递归的爬取页面，直到达到最大深度。
-func Crawl(urlmap *SafeTaskMap, fetcher Fetcher, idle chan<- int, complete *SignalUrlChan, todo *SignalUrlChan) {
-	// TODO: 并行的抓取 URL。
-	// TODO: 不重复抓取页面。
-    // 下面并没有实现上面两种情况：
+func Crawl(urlmap *TaskMap, fetcher Fetcher, idle chan<- int, complete *SignalUrlChan, todo *SignalUrlChan) {
 	complete_list := list.New()
     todo_list := list.New()
 	idle_flag := false
@@ -78,8 +68,8 @@ func Crawl(urlmap *SafeTaskMap, fetcher Fetcher, idle chan<- int, complete *Sign
 }
 
 func IdleMonitor(interval time.Duration, quit chan<- int) chan<- int{
-	//idle := make(chan int)
-	idle := make(chan int, crawl_num)
+	idle := make(chan int)
+	//idle := make(chan int, crawl_num)
 	idle_sum := 0
 	ticker := time.NewTicker(interval)
 	
@@ -102,7 +92,7 @@ func IdleMonitor(interval time.Duration, quit chan<- int) chan<- int{
 	return idle
 }
 
-func StateProcessor(urlmap *SafeTaskMap) (*SignalUrlChan, *SignalUrlChan){
+func StateProcessor(urlmap *TaskMap) (*SignalUrlChan, *SignalUrlChan){
 	complete := &SignalUrlChan{url:make(chan string), signal:make(chan int)}
     todo := &SignalUrlChan{url:make(chan string), signal:make(chan int)}
     go func(){
@@ -126,8 +116,8 @@ func StateProcessor(urlmap *SafeTaskMap) (*SignalUrlChan, *SignalUrlChan){
 }
 
 func main() {
-	//urlmap := &SafeTaskMap{m:make(map[string]bool), q:make(chan string, 1)}
-	urlmap := &SafeTaskMap{m:make(map[string]bool), q:make(chan string, crawl_num + 1)}
+	urlmap := &TaskMap{m:make(map[string]bool), q:make(chan string, 1)}
+	//urlmap := &TaskMap{m:make(map[string]bool), q:make(chan string, crawl_num + 1)}
 	quit := make(chan int)
 	idle := IdleMonitor(time.Second, quit)
 	urlmap.q <- "http://golang.org/"
