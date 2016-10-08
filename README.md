@@ -4,6 +4,7 @@ It just implements a crawler dispatcher, which can fetch url no repeatly.
 A map is used to save the fetched url among many gorountines.  
 But the map doesn't use sync.Mutex.  
 Just use channel.  
+
 If you want know more, just read the code.  
 __StateProcessor__ is used to update map and dispatch.  
 __Crawl__ is used to communicate with __StateProcessor__.   
